@@ -76,7 +76,7 @@ def train_mnist(num_epochs=10, batch_size=32, init_lr=0.01, max_lr=0.5, momentum
 
     # Model hyperparameters
     input_size = 784
-    hidden_size = 256
+    hidden_size = 512
     output_size = 10
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
