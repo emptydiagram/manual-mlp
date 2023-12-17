@@ -71,7 +71,7 @@ def make_moving_collate_fn(device):
     return collate_move_to_device
 
 
-def train_mnist(num_epochs=50, batch_size=32, lr=0.05, momentum=0.9):
+def train_mnist(num_epochs=10, batch_size=32, init_lr=0.01, max_lr=0.5, momentum=0.9):
     set_random_seed(6283185)
 
     # Model hyperparameters
@@ -105,23 +105,26 @@ def train_mnist(num_epochs=50, batch_size=32, lr=0.05, momentum=0.9):
 
     print("Trainable parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
-    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum)
+    optimizer = torch.optim.SGD(model.parameters(), lr=init_lr, momentum=momentum)
+    oc_scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=max_lr, steps_per_epoch=len(train_loader), epochs=num_epochs)
 
     print(f'Train examples: {len(data_train)}')
     print(f'Test examples: {len(data_test)}')
 
-    # pre-training accuracy
-    with torch.no_grad():
-        model.eval()
-        valid_correct = 0
-        for x_mb, y_mb in valid_loader:
-            x_mb = x_mb.view(x_mb.size(0), -1)
-            logits = model(x_mb)
-            valid_correct += torch.sum(torch.argmax(logits, dim=1) == y_mb)
-        valid_acc = valid_correct / len(data_valid)
-        print(f'Validation accuracy: {valid_acc}')
-        model.train()
+    def calc_validation_accuracy():
+        with torch.no_grad():
+            model.eval()
+            valid_correct = 0
+            for x_mb, y_mb in valid_loader:
+                x_mb = x_mb.view(x_mb.size(0), -1)
+                logits = model(x_mb)
+                valid_correct += torch.sum(torch.argmax(logits, dim=1) == y_mb)
+            valid_acc = valid_correct / len(data_valid)
+            print(f'Validation accuracy: {valid_acc}')
+            model.train()
 
+    # pre-training accuracy
+    calc_validation_accuracy()
 
     for epoch in range(num_epochs):
         print(f'Epoch {epoch + 1}/{num_epochs}')
@@ -138,26 +141,14 @@ def train_mnist(num_epochs=50, batch_size=32, lr=0.05, momentum=0.9):
             model.backward(x_mb, y_mb)
 
             optimizer.step()
+            oc_scheduler.step()
 
         print(f'Epoch average loss: {epoch_avg_loss}')
 
-        # calculate validation accuracy
         if (epoch + 1) % 5 == 0:
-            with torch.no_grad():
-                model.eval()
-                valid_correct = 0
-                for x_mb, y_mb in valid_loader:
-                    x_mb = x_mb.view(x_mb.size(0), -1)
-                    logits = model(x_mb)
-                    valid_correct += torch.sum(torch.argmax(logits, dim=1) == y_mb)
-                valid_acc = valid_correct / len(data_valid)
-                print(f'Validation accuracy: {valid_acc}')
-                model.train()
+            calc_validation_accuracy()
+
 
 
 if __name__ == '__main__':
-    lrs = [0.001, 0.01, 0.1, 1.0]
-    for lr in lrs:
-        print("\n---------------------------")
-        print(f'lr = {lr}')
-        train_mnist(num_epochs=10, lr=lr)
+    train_mnist(num_epochs=10, init_lr = 0.01, max_lr=0.5)
