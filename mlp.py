@@ -71,21 +71,13 @@ def make_moving_collate_fn(device):
     return collate_move_to_device
 
 
-def train_mnist():
+def train_mnist(num_epochs=50, batch_size=32, lr=0.05, momentum=0.9):
     set_random_seed(6283185)
-
-    # Training hyperparameters
-    num_epochs = 50
-    batch_size = 32
 
     # Model hyperparameters
     input_size = 784
     hidden_size = 256
     output_size = 10
-
-    # Optimizer hyperparameters
-    lr = 0.05
-    momentum = 0.9
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device: {device}')
@@ -164,4 +156,8 @@ def train_mnist():
 
 
 if __name__ == '__main__':
-    train_mnist()
+    lrs = [0.001, 0.01, 0.1, 1.0]
+    for lr in lrs:
+        print("\n---------------------------")
+        print(f'lr = {lr}')
+        train_mnist(num_epochs=10, lr=lr)
