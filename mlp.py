@@ -12,6 +12,7 @@ def set_random_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
 
+
 # produces (0.13066, 0.30811)
 def calculate_mnist_mean_std():
     data_train = torchvision.datasets.MNIST(root='data', train=True, download=True, transform=torchvision.transforms.ToTensor())
@@ -23,28 +24,49 @@ def calculate_mnist_mean_std():
 class MLP(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super(MLP, self).__init__()
-        self.W1 = torch.randn(input_size, hidden_size, requires_grad=True)
-        self.b1 = torch.randn(hidden_size, requires_grad=True)
-        self.W2 = torch.randn(hidden_size, output_size, requires_grad=True)
-        self.b2 = torch.randn(output_size, requires_grad=True)
+        self.output_size = output_size
+
+        self.W1 = nn.Parameter(torch.randn(input_size, hidden_size, requires_grad=True))
+        self.b1 = nn.Parameter(torch.randn(hidden_size, requires_grad=True))
+        self.W2 = nn.Parameter(torch.randn(hidden_size, output_size, requires_grad=True))
+        self.b2 = nn.Parameter(torch.randn(output_size, requires_grad=True))
+
+        # TODO: don't hardcode relu?
 
     def forward(self, x):
+        # TODO: can we save some memory here?
         with torch.no_grad():
-            x = torch.relu(x @ self.W1 + self.b1)
-            x = x @ self.W2 + self.b2
-        return x
+            self.A1 = x @ self.W1 + self.b1
+            self.Z1 = torch.relu(self.A1)
+            self.A2 = self.Z1 @ self.W2 + self.b2
 
-    def backward(self, x):
+        return self.A2
+
+    def backward(self, x, y):
         # manually set gradients.
-        # 
-        pass
+        Y = F.one_hot(y, num_classes=self.output_size)
+        m = x.shape[0]
+        dL_dA2 = -1.0 * (Y - self.Z2) / m
+        D = -(Y - self.Z2)
+        dL_dA2 = D / m
+        dL_db2 = torch.mean(D, dim=0)
+        dL_dW2 = self.Z1.T @ dL_dA2
+        dL_dZ1 = dL_dA2 @ self.W2.T
+        dL_dA1 = (dL_dZ1 * (self.A1 > 0)) / m
+        dL_db1 = torch.mean(dL_dZ1 * (self.A1 > 0), dim=0)
+        dL_dW1 = (x.T @ dL_dA1) / m
+
+        self.W1.grad = dL_dW1
+        self.b1.grad = dL_db1
+        self.W2.grad = dL_dW2
+        self.b2.grad = dL_db2
 
 
 def train_mnist():
     set_random_seed(6283185)
 
     # Training hyperparameters
-    num_epochs = 5
+    num_epochs = 50
     batch_size = 32
 
     # Model hyperparameters
@@ -53,16 +75,24 @@ def train_mnist():
     output_size = 10
 
     # Optimizer hyperparameters
-    lr = 0.01
+    lr = 0.05
     momentum = 0.9
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f'Using device: {device}')
 
     # Load dataset
     transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor(), torchvision.transforms.Normalize((0.13066,), (0.30811,))])
     data_train = torchvision.datasets.MNIST(root='data', train=True, download=True, transform=transforms)
     data_test = torchvision.datasets.MNIST(root='data', train=False, download=True, transform=transforms)
-    train_loader = torch.utils.data.DataLoader(data_train, batch_size=batch_size, shuffle=True)
 
+    data_train_subset = torch.utils.data.Subset(data_train, range(8092))
+    # train_loader = torch.utils.data.DataLoader(data_train, batch_size=batch_size, shuffle=True)
+    train_loader = torch.utils.data.DataLoader(data_train_subset, batch_size=batch_size, shuffle=True)
+
+    # TODO: use device somehow
     model = MLP(input_size, hidden_size, output_size)
+
     print("Trainable parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum)
@@ -73,21 +103,20 @@ def train_mnist():
 
     for epoch in range(num_epochs):
         print(f'Epoch {epoch + 1}/{num_epochs}')
-        for (x_mb, y_mb) in train_loader:
-            print(x_mb.shape)
-            print(y_mb.shape)
-
+        epoch_avg_loss = 0.0
+        for it, (x_mb, y_mb) in enumerate(train_loader):
             optimizer.zero_grad()
 
             x_mb = x_mb.view(x_mb.size(0), -1)
             logits = model(x_mb)
             loss = F.cross_entropy(logits, y_mb)
-
-            S = F.softmax(logits, dim=1)
-
-            # TODO: Compute gradients
+            epoch_avg_loss = (epoch_avg_loss * it + loss.item()) / (it + 1)
+            model.Z2 = F.softmax(logits, dim=1)
+            model.backward(x_mb, y_mb)
 
             optimizer.step()
+
+        print(f'Epoch average loss: {epoch_avg_loss}')
 
 
     # for epoch in range(num_epochs):
