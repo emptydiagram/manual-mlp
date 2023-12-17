@@ -61,6 +61,14 @@ class MLP(nn.Module):
         self.W2.grad = dL_dW2
         self.b2.grad = dL_db2
 
+def make_moving_collate_fn(device):
+    def collate_move_to_device(batch):
+        inputs, targets = zip(*batch)
+        moved_inputs = torch.stack(inputs).to(device)
+        moved_targets = torch.tensor(targets).to(device)
+        return moved_inputs, moved_targets
+    return collate_move_to_device
+
 
 def train_mnist():
     set_random_seed(6283185)
@@ -81,17 +89,20 @@ def train_mnist():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device: {device}')
 
+    moving_collate = make_moving_collate_fn(device)
+
     # Load dataset
     transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor(), torchvision.transforms.Normalize((0.13066,), (0.30811,))])
     data_train = torchvision.datasets.MNIST(root='data', train=True, download=True, transform=transforms)
     data_test = torchvision.datasets.MNIST(root='data', train=False, download=True, transform=transforms)
 
-    data_train_subset = torch.utils.data.Subset(data_train, range(8092))
     # train_loader = torch.utils.data.DataLoader(data_train, batch_size=batch_size, shuffle=True)
-    train_loader = torch.utils.data.DataLoader(data_train_subset, batch_size=batch_size, shuffle=True)
+    data_train_subset = torch.utils.data.Subset(data_train, range(8092))
+    train_loader = torch.utils.data.DataLoader(data_train_subset, batch_size=batch_size, shuffle=True, collate_fn=moving_collate)
 
     # TODO: use device somehow
     model = MLP(input_size, hidden_size, output_size)
+    model.to(device)
 
     print("Trainable parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
