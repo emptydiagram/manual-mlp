@@ -5,6 +5,7 @@ import torch
 import torchvision
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data import random_split
 
 
 def set_random_seed(seed):
@@ -93,12 +94,19 @@ def train_mnist():
 
     # Load dataset
     transforms = torchvision.transforms.Compose([torchvision.transforms.ToTensor(), torchvision.transforms.Normalize((0.13066,), (0.30811,))])
-    data_train = torchvision.datasets.MNIST(root='data', train=True, download=True, transform=transforms)
+
+    data_train_full = torchvision.datasets.MNIST(root='data', train=True, download=True, transform=transforms)
+    train_size = int(0.8 * len(data_train_full))
+    valid_size = len(data_train_full) - train_size
+    data_train, data_valid = random_split(data_train_full, [train_size, valid_size])
+
     data_test = torchvision.datasets.MNIST(root='data', train=False, download=True, transform=transforms)
 
-    # train_loader = torch.utils.data.DataLoader(data_train, batch_size=batch_size, shuffle=True)
-    data_train_subset = torch.utils.data.Subset(data_train, range(8092))
-    train_loader = torch.utils.data.DataLoader(data_train_subset, batch_size=batch_size, shuffle=True, collate_fn=moving_collate)
+    train_loader = torch.utils.data.DataLoader(data_train, batch_size=batch_size, shuffle=True, collate_fn=moving_collate)
+    valid_loader = torch.utils.data.DataLoader(data_valid, batch_size=batch_size, collate_fn=moving_collate)
+
+    # data_train_subset = torch.utils.data.Subset(data_train, range(8092))
+    # train_loader = torch.utils.data.DataLoader(data_train_subset, batch_size=batch_size, shuffle=True, collate_fn=moving_collate)
 
     model = MLP(input_size, hidden_size, output_size)
     model.to(device)
@@ -109,6 +117,18 @@ def train_mnist():
 
     print(f'Train examples: {len(data_train)}')
     print(f'Test examples: {len(data_test)}')
+
+    # pre-training accuracy
+    with torch.no_grad():
+        model.eval()
+        valid_correct = 0
+        for x_mb, y_mb in valid_loader:
+            x_mb = x_mb.view(x_mb.size(0), -1)
+            logits = model(x_mb)
+            valid_correct += torch.sum(torch.argmax(logits, dim=1) == y_mb)
+        valid_acc = valid_correct / len(data_valid)
+        print(f'Validation accuracy: {valid_acc}')
+        model.train()
 
 
     for epoch in range(num_epochs):
@@ -121,6 +141,7 @@ def train_mnist():
             logits = model(x_mb)
             loss = F.cross_entropy(logits, y_mb)
             epoch_avg_loss = (epoch_avg_loss * it + loss.item()) / (it + 1)
+
             model.Z2 = F.softmax(logits, dim=1)
             model.backward(x_mb, y_mb)
 
@@ -128,18 +149,18 @@ def train_mnist():
 
         print(f'Epoch average loss: {epoch_avg_loss}')
 
-
-    # for epoch in range(num_epochs):
-    #     print(f'Epoch {epoch + 1}/{num_epochs}')
-    #     # Training loop...
-    #     for batch in train_loader:
-    #         x, y = batch
-    #         x = x.view(x.size(0), -1)
-    #         optimizer.zero_grad()
-    #         y_pred = model(x)
-    #         loss = torch.nn.functional.cross_entropy(y_pred, y)
-    #         loss.backward()
-    #         optimizer.step()
+        # calculate validation accuracy
+        if (epoch + 1) % 5 == 0:
+            with torch.no_grad():
+                model.eval()
+                valid_correct = 0
+                for x_mb, y_mb in valid_loader:
+                    x_mb = x_mb.view(x_mb.size(0), -1)
+                    logits = model(x_mb)
+                    valid_correct += torch.sum(torch.argmax(logits, dim=1) == y_mb)
+                valid_acc = valid_correct / len(data_valid)
+                print(f'Validation accuracy: {valid_acc}')
+                model.train()
 
 
 if __name__ == '__main__':
