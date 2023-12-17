@@ -100,7 +100,6 @@ def train_mnist():
     data_train_subset = torch.utils.data.Subset(data_train, range(8092))
     train_loader = torch.utils.data.DataLoader(data_train_subset, batch_size=batch_size, shuffle=True, collate_fn=moving_collate)
 
-    # TODO: use device somehow
     model = MLP(input_size, hidden_size, output_size)
     model.to(device)
 
